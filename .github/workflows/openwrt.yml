@@ -1,9 +1,9 @@
 #
 # This is free software, lisence use MIT.
-# 
+#
 # Copyright (C) 2019 P3TERX <https://p3terx.com>
 # Copyright (C) 2020 KFERMercer <KFER.Mercer@gmail.com>
-# 
+#
 # <https://github.com/KFERMercer/OpenWrt-CI>
 #
 
@@ -11,12 +11,17 @@ name: OpenWrt
 
 on:
   push:
-    branches: 
+    branches:
       - master
   #schedule:
   #    - cron: 0 0 1 * *
   watch:
     types: started
+
+env:
+  UPLOAD_FIRMWARE: true
+  UPLOAD_COWTRANSFER: false
+  UPLOAD_WETRANSFER: true
 
 jobs:
   build:
@@ -42,10 +47,10 @@ jobs:
           mv ./lede/* ./
       - name: Install Helloword
         run: |
-          echo "src-git helloworld https://github.com/fw876/helloworld" >> ./feeds.conf.default 
+          echo "src-git helloworld https://github.com/fw876/helloworld" >> ./feeds.conf.default
       - name: Install kenzok8 openwrt-packages
         run: |
-          echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> ./feeds.conf.default 
+          echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> ./feeds.conf.default
       - name: Install OpenClash
         run: |
           mkdir package/luci-app-openclash
@@ -99,9 +104,38 @@ jobs:
         with:
           name: OpenWrt_package
           path: ./artifact/package/
-          
-      - name : Upload artifact
+
+      - name: Upload artifact
         uses: actions/upload-artifact@master
         with:
           name: OpenWrt_firmware
           path: bin/targets/
+
+      - name: Organize files
+        id: organize
+        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+        run: |
+          cd ./artifact/firmware/
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "::set-output name=status::success"
+
+      - name: Upload firmware to WeTransfer
+        id: wetransfer
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+        run: |
+          curl -fsSL git.io/file-transfer | sh
+          cp transfer test
+          ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
+          echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+          echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
+
+      - name: Upload firmware to cowtransfer
+        id: cowtransfer
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+        run: |
+          curl -fsSL git.io/file-transfer | sh
+          ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+          echo "fileurl=$(cat cowtransfer.log | grep https)" >> $GITHUB_ENV
+          echo "fileurl2=$(cat cowtransfer.log | grep htt)" >> $GITHUB_ENV
+          echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+          echo "::set-output name=url::$(cat cowtransfer.log | grep https | cut -f3 -d" ")"
