@@ -10,6 +10,13 @@
 name: OpenWrt
 
 on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: "SSH connection to Actions"
+        required: false
+        default: "false"
   push:
     branches:
       - master
@@ -52,6 +59,7 @@ jobs:
         run: |
           echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> ./feeds.conf.default
           echo "src-git small https://github.com/kenzok8/small" >> ./feeds.conf.default
+
       - name: Install OpenClash
         run: |
           mkdir package/luci-app-openclash
@@ -65,10 +73,28 @@ jobs:
           pushd luci-app-openclash/tools/po2lmo
           make && sudo make install
           popd
+
       - name: Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: SSH connection to Actions
+        uses: P3TERX/ssh2actions@v1.0.0
+        if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+        env:
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+      - name: Upload configfile to WeTransfer
+        id: wetransfer-configfile
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+        run: |
+          curl -fsSL git.io/file-transfer | sh
+          ./transfer wet -s -p 16 --no-progress .config 2>&1 | tee wetransfer.log
+          echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+          echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
+
       - name: Costom configure file
         run: |
           make defconfig
@@ -125,7 +151,6 @@ jobs:
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
         run: |
           curl -fsSL git.io/file-transfer | sh
-          cp transfer test
           ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
           echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
           echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
